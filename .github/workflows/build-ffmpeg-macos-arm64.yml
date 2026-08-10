@@ -125,13 +125,34 @@ jobs:
       # statically, so the binaries only need macOS system libraries.
       # (macOS does not support fully static binaries; libSystem is always
       # dynamic. This is as static as it gets.)
+      #
+      # macOS ld always prefers .dylib over .a for -lfoo, and with
+      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
+      # taking the address of a dylib symbol fails with "invalid use of ADRP".
+      # So we inject a hook at the start of the formula's install method
+      # (i.e. AFTER the source tarball is unpacked — Homebrew's bsdtar needs
+      # liblzma.dylib) that hides all dylibs, forcing the linker to use the
+      # static archives. pkgconf's dylib is kept because configure still
+      # needs to run pkg-config. The CI runner is disposable.
       - name: Patch formula to build static
         run: |
           FORMULA="$(brew --repository)/Library/Taps/homebrew-ffmpeg/homebrew-ffmpeg/Formula/ffmpeg.rb"
           sed -i '' \
             's/--enable-shared/--enable-static --disable-shared --pkg-config-flags=--static/' \
             "$FORMULA"
-          grep -n 'enable-static' "$FORMULA"
+          python3 - "$FORMULA" <<'PYEOF'
+          import sys
+          p = sys.argv[1]
+          s = open(p).read()
+          inject = (
+              " def install\n"
+              '  system "find", "#{HOMEBREW_PREFIX}/Cellar", "-name", "*.dylib", "!", "-path", "*pkgconf*", "-exec", "mv", "{}", "{}.hidden", ";"\n'
+          )
+          assert " def install\n" in s, "install method not found"
+          s = s.replace(" def install\n", inject, 1)
+          open(p, "w").write(s)
+          PYEOF
+          sed -n '/def install/,+3p' "$FORMULA"
 
       # chromaprint depends on ffmpeg itself (cyclic dependency).
       # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
@@ -146,12 +167,7 @@ jobs:
       - name: Pre-install zvbi (missing formula dependency)
         run: brew install zvbi
 
-      # macOS ld always prefers .dylib over .a for -lfoo, and with
-      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
-      # taking the address of a dylib symbol fails with "invalid use of ADRP".
-      # The only reliable fix is to hide the dylibs so the linker can only
-      # find static archives. The CI runner is disposable.
-      - name: Install dependencies and hide Homebrew dylibs
+      - name: Install dependencies
         run: |
           # All options except:
           #   --with-decklink   (requires the DeckLink SDK, not available in CI)
@@ -174,9 +190,6 @@ jobs:
           echo "Building with options: $OPTIONS"
           echo "OPTIONS=$OPTIONS" >> "$GITHUB_ENV"
           brew install --only-dependencies homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
-          find "$(brew --prefix)/Cellar" -name '*.dylib' -exec mv {} {}.hidden \;
-          # Remove the now-dangling symlinks in the top-level lib dir
-          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
 
       - name: Build FFmpeg with all available options (static)
         run: |
