@@ -116,6 +116,9 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      # The formula hook renames Homebrew dylibs during install to force
+      # static linking; that needs write access outside the build dir.
+      HOMEBREW_NO_SANDBOX: "1"
     steps:
       - name: Tap homebrew-ffmpeg
         run: |
