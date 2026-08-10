@@ -210,7 +210,7 @@ jobs:
             --extra-ldflags=-Wl,-ld_classic \
             --extra-cflags=-I/opt/homebrew/include \
             --extra-ldflags=-L/opt/homebrew/lib \
-            --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv' \
+            --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv -framework CoreFoundation -framework CoreServices -framework CoreText -framework CoreGraphics' \
             --cc=clang \
             --enable-gpl --enable-version3 \
             --enable-libaom --enable-libdav1d --enable-libharfbuzz \
