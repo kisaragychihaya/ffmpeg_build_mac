@@ -208,14 +208,21 @@ jobs:
       - name: Build FFmpeg (static)
         run: |
           cd ffmpeg-src
+          # Keg-only Homebrew packages are not linked into /opt/homebrew,
+          # so pkg-config and the compiler need their paths explicitly.
+          export PKG_CONFIG_PATH="/opt/homebrew/opt/openal-soft/lib/pkgconfig:/opt/homebrew/opt/icu4c@78/lib/pkgconfig:/opt/homebrew/opt/libarchive/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/mbedtls@3/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
           ./configure \
             --prefix="$PWD/../ffmpeg-install" \
             --enable-static --disable-shared --pkg-config-flags=--static \
             --extra-ldflags=-Wl,-ld_classic \
             --extra-cflags=-I/opt/homebrew/include \
+            --extra-cflags=-I/opt/homebrew/opt/openal-soft/include \
             --extra-ldflags=-L/opt/homebrew/lib \
             --extra-ldflags=-L/opt/homebrew/opt/mbedtls@3/lib \
             --extra-ldflags=-L/opt/homebrew/opt/openssl@3/lib \
+            --extra-ldflags=-L/opt/homebrew/opt/openal-soft/lib \
+            --extra-ldflags=-L/opt/homebrew/opt/icu4c@78/lib \
+            --extra-ldflags=-L/opt/homebrew/opt/libarchive/lib \
             --extra-ldflags=-Wl,-U,_GSS_C_NT_HOSTBASED_SERVICE \
             --extra-ldflags=-Wl,-U,_GSS_C_NT_USER_NAME \
             --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv -lssl -lcrypto -lc++ -lb2 -llzma -llz4 -lzstd -lsharpyuv -framework CoreFoundation -framework CoreServices -framework CoreText -framework CoreGraphics -framework GSS -framework Accelerate' \
