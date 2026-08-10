@@ -116,46 +116,10 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
-      # The formula hook renames Homebrew dylibs during install to force
-      # static linking; that needs write access outside the build dir.
-      HOMEBREW_NO_SANDBOX: "1"
     steps:
       - name: Tap homebrew-ffmpeg
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
-
-      # Patch the formula for a static build: link all Homebrew dependencies
-      # statically, so the binaries only need macOS system libraries.
-      # (macOS does not support fully static binaries; libSystem is always
-      # dynamic. This is as static as it gets.)
-      #
-      # macOS ld always prefers .dylib over .a for -lfoo, and with
-      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
-      # taking the address of a dylib symbol fails with "invalid use of ADRP".
-      # So we inject a hook at the start of the formula's install method
-      # (i.e. AFTER the source tarball is unpacked — Homebrew's bsdtar needs
-      # liblzma.dylib) that hides all dylibs, forcing the linker to use the
-      # static archives. pkgconf's dylib is kept because configure still
-      # needs to run pkg-config. The CI runner is disposable.
-      - name: Patch formula to build static
-        run: |
-          FORMULA="$(brew --repository)/Library/Taps/homebrew-ffmpeg/homebrew-ffmpeg/Formula/ffmpeg.rb"
-          sed -i '' \
-            's/--enable-shared/--enable-static --disable-shared --pkg-config-flags=--static/' \
-            "$FORMULA"
-          python3 - "$FORMULA" <<'PYEOF'
-          import sys
-          p = sys.argv[1]
-          s = open(p).read()
-          inject = (
-              " def install\n"
-              '  system "find", "#{HOMEBREW_PREFIX}/Cellar", "-name", "*.dylib", "!", "-path", "*pkgconf*", "-exec", "mv", "{}", "{}.hidden", ";"\n'
-          )
-          assert " def install\n" in s, "install method not found"
-          s = s.replace(" def install\n", inject, 1)
-          open(p, "w").write(s)
-          PYEOF
-          sed -n '/def install/,+3p' "$FORMULA"
 
       # chromaprint depends on ffmpeg itself (cyclic dependency).
       # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
@@ -170,6 +134,9 @@ jobs:
       - name: Pre-install zvbi (missing formula dependency)
         run: brew install zvbi
 
+      # Homebrew is only used to install the dependencies. The build itself
+      # is done manually below, because Homebrew's build sandbox prevents the
+      # dylib-hiding trick needed for static linking.
       - name: Install dependencies
         run: |
           # All options except:
@@ -191,23 +158,75 @@ jobs:
             | grep -v 'with-openvino' \
             | xargs)
           echo "Building with options: $OPTIONS"
-          echo "OPTIONS=$OPTIONS" >> "$GITHUB_ENV"
           brew install --only-dependencies homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
 
-      - name: Build FFmpeg with all available options (static)
+      - name: Download FFmpeg source
         run: |
-          brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS || {
-            echo "===== ffbuild/config.log tail ====="
-            tail -100 ~/Library/Logs/Homebrew/ffmpeg/ffbuild/config.log
-            exit 1
-          }
+          VERSION=$(brew info --json=v2 homebrew-ffmpeg/ffmpeg/ffmpeg \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["formulae"][0]["versions"]["stable"])')
+          echo "FFmpeg version: $VERSION"
+          curl -fL -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${VERSION}.tar.xz"
+          /usr/bin/tar xf ffmpeg.tar.xz
+          mv "ffmpeg-${VERSION}" ffmpeg-src
+
+      # macOS ld always prefers .dylib over .a for -lfoo, and with
+      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
+      # taking the address of a dylib symbol fails with "invalid use of ADRP".
+      # Hide all Homebrew dylibs so only static archives remain. Must run
+      # after every brew command (brew's own tools need those dylibs).
+      # pkgconf's dylib is kept so pkg-config keeps working.
+      # The CI runner is disposable.
+      - name: Hide Homebrew dylibs
+        run: |
+          find "$(brew --prefix)/Cellar" -name '*.dylib' \
+            ! -path '*pkgconf*' -exec mv {} {}.hidden \;
+          # Remove the now-dangling symlinks in the top-level lib dir
+          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
+
+      # Configure args mirror the formula's (see the shared build job),
+      # with --enable-shared replaced by static flags, and without
+      # tensorflow/openvino (no static archives available).
+      - name: Build FFmpeg (static)
+        run: |
+          cd ffmpeg-src
+          ./configure \
+            --prefix="$PWD/../ffmpeg-install" \
+            --enable-static --disable-shared --pkg-config-flags=--static \
+            --cc=clang \
+            --enable-gpl --enable-version3 \
+            --enable-libaom --enable-libdav1d --enable-libharfbuzz \
+            --enable-libmp3lame --enable-libopus --enable-libsnappy \
+            --enable-libsvtav1 --enable-libtheora --enable-libvorbis \
+            --enable-libvpx --enable-libx264 --enable-libx265 \
+            --enable-libfontconfig --enable-libfreetype \
+            --enable-frei0r --enable-libass --enable-demuxer=dash \
+            --enable-neon \
+            --enable-openal --enable-opencl \
+            --enable-audiotoolbox --enable-videotoolbox \
+            --disable-htmlpages \
+            --enable-chromaprint --enable-libaribcaption --enable-libaribb24 \
+            --enable-libbluray --enable-libbs2b --enable-libcaca \
+            --enable-libgme --enable-libgsm --enable-libjxl \
+            --enable-libmodplug --enable-libopenh264 --enable-libopenjpeg \
+            --enable-libopenmpt --enable-libplacebo --enable-librav1e \
+            --enable-librist --enable-librsvg --enable-librtmp \
+            --enable-librubberband --enable-libsoxr --enable-libspeex \
+            --enable-libsrt --enable-libssh --enable-libtesseract \
+            --enable-libtwolame --enable-libvidstab --enable-libvmaf \
+            --enable-libwebp --enable-libxml2 --enable-libxvid \
+            --enable-libzimg --enable-libzmq --enable-liboapv \
+            --enable-libdvdnav --enable-libdvdread \
+            --enable-libjack --enable-indev=jack \
+            --enable-whisper --enable-libzvbi \
+            --enable-libopencore-amrnb --enable-libopencore-amrwb \
+            || { echo "===== ffbuild/config.log tail ====="; tail -100 ffbuild/config.log; exit 1; }
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Package static binaries
         run: |
-          PREFIX=$(brew --prefix)
           mkdir -p dist/bin
           for tool in ffmpeg ffprobe ffplay; do
-            cp "$PREFIX/bin/$tool" dist/bin/
+            cp "ffmpeg-src/$tool" dist/bin/
           done
 
           # Verify the binaries are static w.r.t. Homebrew: no references to
