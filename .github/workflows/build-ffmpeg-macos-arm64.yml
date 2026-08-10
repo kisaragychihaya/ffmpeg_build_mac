@@ -26,6 +26,11 @@ jobs:
           brew install chromaprint
           brew uninstall --ignore-dependencies ffmpeg
 
+      # The formula's --with-libzvbi option uses zvbi but forgets to declare
+      # the dependency, so pkg-config can't find zvbi-0.2. Install it first.
+      - name: Pre-install zvbi (missing formula dependency)
+        run: brew install zvbi
+
       - name: Build FFmpeg with all available options
         run: |
           # All options except:
