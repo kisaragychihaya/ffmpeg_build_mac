@@ -271,13 +271,19 @@ jobs:
             cp "ffmpeg-src/$tool" dist/bin/
           done
 
+          # Linking is done at this point, so restore the hidden dylibs:
+          # dylibbundler needs them to resolve transitive dependencies of
+          # the libs that stayed dynamic.
+          find "$(brew --prefix)/Cellar" -name '*.dylib.hidden' \
+            | while read -r f; do mv "$f" "${f%.hidden}"; done
+
           # Most libraries are statically linked in; bundle the remaining
           # dylib dependencies (libs that ship no .a) into dist/lib.
           for tool in ffmpeg ffprobe ffplay; do
             dylibbundler -od -b -of \
               -x "dist/bin/$tool" \
               -d dist/lib \
-              -p @executable_path/../lib
+              -p @executable_path/../lib < /dev/null
           done
           echo "Bundled dylibs:"
           ls dist/lib | head -40
