@@ -159,6 +159,7 @@ jobs:
             | xargs)
           echo "Building with options: $OPTIONS"
           brew install --only-dependencies homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
+          brew install dylibbundler
 
       - name: Download FFmpeg source
         run: |
@@ -169,40 +170,40 @@ jobs:
           /usr/bin/tar xf ffmpeg.tar.xz
           mv "ffmpeg-${VERSION}" ffmpeg-src
 
-      # macOS ld always prefers .dylib over .a for -lfoo, and with
-      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
-      # taking the address of a dylib symbol fails with "invalid use of ADRP".
-      # Hide all Homebrew dylibs so only static archives remain. Must run
-      # after every brew command (brew's own tools need those dylibs).
-      # pkgconf's dylib is kept so pkg-config keeps working.
+      # Many Homebrew bottles ship no static archive (.a) at all (dav1d,
+      # svt-av1, jxl, placebo, rsvg, whisper, SDL2, glib, ...), so a fully
+      # static build would lose too many features. Instead this is a hybrid:
+      #   - libs that have a .a get their dylib hidden, forcing static linking
+      #   - libs without a .a keep their dylib and are bundled into the
+      #     package afterwards with dylibbundler
+      # Hiding must run after every brew command (brew's own tools need
+      # those dylibs). pkgconf is exempted so pkg-config keeps working.
       # The CI runner is disposable.
-      - name: Hide Homebrew dylibs
+      - name: Hide dylibs that have a static archive
         run: |
-          find "$(brew --prefix)/Cellar" -name '*.dylib' \
-            ! -path '*pkgconf*' -exec mv {} {}.hidden \;
-          # Remove the now-dangling symlinks in the top-level lib dir
-          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
-          # List libraries that ship no static archive (.a) — the
-          # corresponding features must be excluded from the static build.
-          echo "=== Libraries WITHOUT a static archive ==="
-          for d in "$(brew --prefix)"/Cellar/*/*/lib; do
-            [ -d "$d" ] || continue
-            for dy in "$d"/*.dylib.hidden; do
-              [ -e "$dy" ] || continue
-              root=$(basename "$dy" | sed 's/\.[0-9.]*\.dylib\.hidden$//;s/\.dylib\.hidden$//')
-              [ -e "$d/$root.a" ] || echo "$root"
+          CELLAR="$(brew --prefix)/Cellar"
+          find "$CELLAR" -name '*.a' ! -path '*pkgconf*' | while read -r a; do
+            dir=$(dirname "$a"); base=$(basename "$a" .a)
+            for dy in "$dir/$base.dylib" "$dir/$base".*.dylib; do
+              [ -e "$dy" ] && mv "$dy" "$dy.hidden"
             done
-          done | sort -u
+          done
+          # Remove now-dangling symlinks in the top-level lib dir
+          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
 
       # Configure args mirror the formula's (see the shared build job),
       # with --enable-shared replaced by static flags, and without
       # tensorflow/openvino (no static archives available).
+      # -Wl,-ld_classic: the new Apple linker errors with "invalid use of
+      # ADRP" when a -mdynamic-no-pic configure probe takes the address of
+      # a dylib symbol; the classic linker tolerates it.
       - name: Build FFmpeg (static)
         run: |
           cd ffmpeg-src
           ./configure \
             --prefix="$PWD/../ffmpeg-install" \
             --enable-static --disable-shared --pkg-config-flags=--static \
+            --extra-ldflags=-Wl,-ld_classic \
             --cc=clang \
             --enable-gpl --enable-version3 \
             --enable-libaom --enable-libdav1d --enable-libharfbuzz \
@@ -235,18 +236,28 @@ jobs:
 
       - name: Package static binaries
         run: |
-          mkdir -p dist/bin
+          mkdir -p dist/bin dist/lib
           for tool in ffmpeg ffprobe ffplay; do
             cp "ffmpeg-src/$tool" dist/bin/
           done
 
-          # Verify the binaries are static w.r.t. Homebrew: no references to
-          # /opt/homebrew may remain (system libs under /usr/lib and
-          # /System/Library are expected and unavoidable on macOS).
-          otool -L dist/bin/ffmpeg
+          # Most libraries are statically linked in; bundle the remaining
+          # dylib dependencies (libs that ship no .a) into dist/lib.
+          for tool in ffmpeg ffprobe ffplay; do
+            dylibbundler -od -b -of \
+              -x "dist/bin/$tool" \
+              -d dist/lib \
+              -p @executable_path/../lib
+          done
+          echo "Bundled dylibs:"
+          ls dist/lib | head -40
+          echo "Bundled dylib count: $(ls dist/lib | wc -l)"
+
+          # After bundling, no reference to /opt/homebrew may remain
+          # (system libs under /usr/lib and /System/Library are fine).
           if otool -L dist/bin/ffmpeg dist/bin/ffprobe dist/bin/ffplay \
-              | grep -q 'homebrew'; then
-            echo "::error::binaries still link against Homebrew dylibs"
+              | grep -q '/opt/homebrew'; then
+            echo "::error::binaries still reference Homebrew paths"
             exit 1
           fi
 
@@ -265,7 +276,7 @@ jobs:
             -f lavfi -i testsrc=duration=2:size=640x360:rate=30 \
             -c:v h264_videotoolbox -allow_sw 1 -y hwtest.mp4
 
-          tar -C dist -czf "ffmpeg-full-macos-arm64-static.tar.gz" bin
+          tar -C dist -czf "ffmpeg-full-macos-arm64-static.tar.gz" bin lib
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
