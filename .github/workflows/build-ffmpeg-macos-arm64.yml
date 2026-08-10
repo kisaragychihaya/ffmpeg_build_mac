@@ -1,0 +1,97 @@
+name: Build FFmpeg (macOS arm64, full options)
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-14 # Apple Silicon (arm64)
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: Tap homebrew-ffmpeg
+        run: |
+          brew tap homebrew-ffmpeg/ffmpeg
+
+      # chromaprint depends on ffmpeg itself (cyclic dependency).
+      # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
+      # then remove that ffmpeg while keeping chromaprint.
+      - name: Pre-install chromaprint (cyclic dependency workaround)
+        run: |
+          brew install chromaprint
+          brew uninstall --ignore-dependencies ffmpeg
+
+      - name: Build FFmpeg with all available options
+        run: |
+          # All options except:
+          #   --with-decklink  (requires the DeckLink SDK, not available in CI)
+          #   --with-libflite  (flite is not packaged in homebrew-core)
+          #   --with-alt-name  (we want the normal ffmpeg/ffprobe/ffplay names)
+          #   --with-fdk-aac   (not needed; also forces --enable-nonfree)
+          #   --with-openssl   (not needed; also forces --enable-nonfree)
+          OPTIONS=$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact \
+            | tr ' ' '\n' \
+            | grep -v 'with-decklink' \
+            | grep -v 'with-libflite' \
+            | grep -v 'with-alt-name' \
+            | grep -v 'with-fdk-aac' \
+            | grep -v 'with-openssl' \
+            | xargs)
+          echo "Building with options: $OPTIONS"
+          # Options always imply a source build, so this compiles FFmpeg.
+          brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
+
+      - name: Bundle binaries with their dylib dependencies
+        run: |
+          brew install dylibbundler
+          PREFIX=$(brew --prefix)
+          mkdir -p dist/bin dist/lib
+          for tool in ffmpeg ffprobe ffplay; do
+            cp "$PREFIX/bin/$tool" dist/bin/
+            dylibbundler -od -b -of \
+              -x "dist/bin/$tool" \
+              -d dist/lib \
+              -p @executable_path/../lib
+          done
+          # Sanity check: the bundled binary must run standalone
+          DYLD_LIBRARY_PATH= dist/bin/ffmpeg -version
+          dist/bin/ffmpeg -buildconf
+
+          # Verify Apple Silicon hardware acceleration is compiled in.
+          # The formula enables these by default on macOS/arm64:
+          #   --enable-videotoolbox  (h264/hevc/prores HW encode+decode)
+          #   --enable-audiotoolbox  (AAC/AC-3 HW audio)
+          #   --enable-neon          (ARM NEON SIMD)
+          dist/bin/ffmpeg -hide_banner -hwaccels | tee hwaccels.txt
+          grep -q videotoolbox hwaccels.txt
+          dist/bin/ffmpeg -hide_banner -encoders | grep -E '_videotoolbox$'
+          dist/bin/ffmpeg -hide_banner -decoders | grep -E '_videotoolbox$'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-videotoolbox'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
+
+          # Functional test: real VideoToolbox hardware encode + decode
+          dist/bin/ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i testsrc=duration=2:size=640x360:rate=30 \
+            -c:v h264_videotoolbox -y hwtest.mp4
+          dist/bin/ffmpeg -hide_banner -loglevel error \
+            -hwaccel videotoolbox -i hwtest.mp4 -f null -
+
+          tar -C dist -czf "ffmpeg-full-macos-arm64.tar.gz" bin lib
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-full-macos-arm64
+          path: ffmpeg-full-macos-arm64.tar.gz
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ffmpeg-full-macos-arm64.tar.gz
