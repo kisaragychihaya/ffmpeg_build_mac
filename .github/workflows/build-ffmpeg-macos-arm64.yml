@@ -146,21 +146,12 @@ jobs:
       - name: Pre-install zvbi (missing formula dependency)
         run: brew install zvbi
 
-      # Diagnose why pkg-config --static cannot find libopenjp2
-      - name: Diagnose libopenjp2 pkg-config failure
-        run: |
-          brew install openjpeg
-          PC=$(brew --prefix openjpeg)/lib/pkgconfig/libopenjp2.pc
-          echo "--- libopenjp2.pc ---"
-          cat "$PC"
-          echo "--- pkg-config --modversion ---"
-          pkg-config --modversion libopenjp2 || true
-          echo "--- pkg-config --static --modversion ---"
-          pkg-config --static --modversion libopenjp2 || true
-          echo "--- pkg-config --static --libs ---"
-          pkg-config --static --libs libopenjp2 || true
-
-      - name: Build FFmpeg with all available options (static)
+      # macOS ld always prefers .dylib over .a for -lfoo, and with
+      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
+      # taking the address of a dylib symbol fails with "invalid use of ADRP".
+      # The only reliable fix is to hide the dylibs so the linker can only
+      # find static archives. The CI runner is disposable.
+      - name: Install dependencies and hide Homebrew dylibs
         run: |
           # All options except:
           #   --with-decklink   (requires the DeckLink SDK, not available in CI)
@@ -181,10 +172,17 @@ jobs:
             | grep -v 'with-openvino' \
             | xargs)
           echo "Building with options: $OPTIONS"
+          echo "OPTIONS=$OPTIONS" >> "$GITHUB_ENV"
+          brew install --only-dependencies homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
+          find "$(brew --prefix)/Cellar" -name '*.dylib' -exec mv {} {}.hidden \;
+          # Remove the now-dangling symlinks in the top-level lib dir
+          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
+
+      - name: Build FFmpeg with all available options (static)
+        run: |
           brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS || {
-            echo "===== ffbuild/config.log: openjp2 context ====="
-            CFG=~/Library/Logs/Homebrew/ffmpeg/ffbuild/config.log
-            grep -n -B2 -A15 'openjp2' "$CFG" | tail -80
+            echo "===== ffbuild/config.log tail ====="
+            tail -100 ~/Library/Logs/Homebrew/ffmpeg/ffbuild/config.log
             exit 1
           }
 
