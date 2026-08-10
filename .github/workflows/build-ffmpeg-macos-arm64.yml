@@ -181,7 +181,14 @@ jobs:
             | grep -v 'with-openvino' \
             | xargs)
           echo "Building with options: $OPTIONS"
-          brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
+          brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS || {
+            echo "===== ffbuild/config.log tail ====="
+            find /private/tmp -name config.log -path '*ffbuild*' 2>/dev/null \
+              | head -1 | xargs tail -60
+            echo "===== Homebrew configure log tail ====="
+            tail -60 ~/Library/Logs/Homebrew/ffmpeg/01.configure.cc.log 2>/dev/null
+            exit 1
+          }
 
       - name: Package static binaries
         run: |
