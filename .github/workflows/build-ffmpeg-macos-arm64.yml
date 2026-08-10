@@ -199,6 +199,8 @@ jobs:
       # -Wl,-ld_classic: the new Apple linker errors with "invalid use of
       # ADRP" when a -mdynamic-no-pic configure probe takes the address of
       # a dylib symbol; the classic linker tolerates it.
+      # --extra-libs: some Homebrew .pc files don't declare their private
+      # (transitive) dependencies, which only breaks static linking.
       - name: Build FFmpeg (static)
         run: |
           cd ffmpeg-src
@@ -208,6 +210,7 @@ jobs:
             --extra-ldflags=-Wl,-ld_classic \
             --extra-cflags=-I/opt/homebrew/include \
             --extra-ldflags=-L/opt/homebrew/lib \
+            --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv' \
             --cc=clang \
             --enable-gpl --enable-version3 \
             --enable-libaom --enable-libdav1d --enable-libharfbuzz \
