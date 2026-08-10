@@ -191,7 +191,8 @@ jobs:
             done
           done
           # Remove now-dangling symlinks in the top-level lib dir
-          find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
+          # (-L follows links, so -type l matches only broken ones)
+          find -L "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -type l -delete
           exit 0
 
       # Configure args mirror the formula's (see the shared build job),
