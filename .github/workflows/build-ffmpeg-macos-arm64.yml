@@ -184,7 +184,15 @@ jobs:
         run: |
           set +e  # hiding is best-effort; a non-matching glob must not fail the step
           CELLAR="$(brew --prefix)/Cellar"
-          find "$CELLAR" -name '*.a' ! -path '*pkgconf*' | while read -r a; do
+          # libbluray/libssh/libzmq stay dynamic: their static archives have
+          # global symbols that collide with ffmpeg's own (dec_init) or with
+          # each other (sha1_init in libssh.a and libzmq.a).
+          find "$CELLAR" -name '*.a' \
+            ! -path '*pkgconf*' \
+            ! -path '*libbluray*' \
+            ! -path '*libssh*' \
+            ! -path '*zeromq*' \
+            | while read -r a; do
             dir=$(dirname "$a"); base=$(basename "$a" .a)
             for dy in "$dir/$base.dylib" "$dir/$base".*.dylib; do
               if [ -e "$dy" ]; then mv "$dy" "$dy.hidden"; fi
