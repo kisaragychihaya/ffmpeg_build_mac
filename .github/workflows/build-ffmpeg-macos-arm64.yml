@@ -74,8 +74,8 @@ jobs:
           #   --enable-neon          (ARM NEON SIMD)
           dist/bin/ffmpeg -hide_banner -hwaccels | tee hwaccels.txt
           grep -q videotoolbox hwaccels.txt
-          dist/bin/ffmpeg -hide_banner -encoders | grep -E '_videotoolbox$'
-          dist/bin/ffmpeg -hide_banner -decoders | grep -E '_videotoolbox$'
+          dist/bin/ffmpeg -hide_banner -encoders | grep '_videotoolbox'
+          dist/bin/ffmpeg -hide_banner -decoders | grep '_videotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-videotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
