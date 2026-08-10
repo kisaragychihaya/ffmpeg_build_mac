@@ -146,6 +146,20 @@ jobs:
       - name: Pre-install zvbi (missing formula dependency)
         run: brew install zvbi
 
+      # Diagnose why pkg-config --static cannot find libopenjp2
+      - name: Diagnose libopenjp2 pkg-config failure
+        run: |
+          brew install openjpeg
+          PC=$(brew --prefix openjpeg)/lib/pkgconfig/libopenjp2.pc
+          echo "--- libopenjp2.pc ---"
+          cat "$PC"
+          echo "--- pkg-config --modversion ---"
+          pkg-config --modversion libopenjp2 || true
+          echo "--- pkg-config --static --modversion ---"
+          pkg-config --static --modversion libopenjp2 || true
+          echo "--- pkg-config --static --libs ---"
+          pkg-config --static --libs libopenjp2 || true
+
       - name: Build FFmpeg with all available options (static)
         run: |
           # All options except:
