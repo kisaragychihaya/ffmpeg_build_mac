@@ -109,3 +109,109 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ffmpeg-full-macos-arm64.tar.gz
+
+  build-static:
+    runs-on: macos-14 # Apple Silicon (arm64)
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: Tap homebrew-ffmpeg
+        run: |
+          brew tap homebrew-ffmpeg/ffmpeg
+
+      # Patch the formula for a static build: link all Homebrew dependencies
+      # statically, so the binaries only need macOS system libraries.
+      # (macOS does not support fully static binaries; libSystem is always
+      # dynamic. This is as static as it gets.)
+      - name: Patch formula to build static
+        run: |
+          FORMULA="$(brew --repository)/Library/Taps/homebrew-ffmpeg/homebrew-ffmpeg/Formula/ffmpeg.rb"
+          sed -i '' \
+            's/--enable-shared/--enable-static --disable-shared --pkg-config-flags=--static/' \
+            "$FORMULA"
+          grep -n 'enable-static' "$FORMULA"
+
+      # chromaprint depends on ffmpeg itself (cyclic dependency).
+      # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
+      # then remove that ffmpeg while keeping chromaprint.
+      - name: Pre-install chromaprint (cyclic dependency workaround)
+        run: |
+          brew install chromaprint
+          brew uninstall --ignore-dependencies ffmpeg
+
+      # The formula's --with-libzvbi option uses zvbi but forgets to declare
+      # the dependency, so pkg-config can't find zvbi-0.2. Install it first.
+      - name: Pre-install zvbi (missing formula dependency)
+        run: brew install zvbi
+
+      - name: Build FFmpeg with all available options (static)
+        run: |
+          # All options except:
+          #   --with-decklink   (requires the DeckLink SDK, not available in CI)
+          #   --with-libflite   (flite is not packaged in homebrew-core)
+          #   --with-alt-name   (we want the normal ffmpeg/ffprobe/ffplay names)
+          #   --with-fdk-aac    (not needed; also forces --enable-nonfree)
+          #   --with-openssl    (not needed; also forces --enable-nonfree)
+          #   --with-tensorflow (libtensorflow ships no static archive)
+          #   --with-openvino   (OpenVINO ships no static archive)
+          OPTIONS=$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact \
+            | tr ' ' '\n' \
+            | grep -v 'with-decklink' \
+            | grep -v 'with-libflite' \
+            | grep -v 'with-alt-name' \
+            | grep -v 'with-fdk-aac' \
+            | grep -v 'with-openssl' \
+            | grep -v 'with-tensorflow' \
+            | grep -v 'with-openvino' \
+            | xargs)
+          echo "Building with options: $OPTIONS"
+          brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
+
+      - name: Package static binaries
+        run: |
+          PREFIX=$(brew --prefix)
+          mkdir -p dist/bin
+          for tool in ffmpeg ffprobe ffplay; do
+            cp "$PREFIX/bin/$tool" dist/bin/
+          done
+
+          # Verify the binaries are static w.r.t. Homebrew: no references to
+          # /opt/homebrew may remain (system libs under /usr/lib and
+          # /System/Library are expected and unavoidable on macOS).
+          otool -L dist/bin/ffmpeg
+          if otool -L dist/bin/ffmpeg dist/bin/ffprobe dist/bin/ffplay \
+              | grep -q 'homebrew'; then
+            echo "::error::binaries still link against Homebrew dylibs"
+            exit 1
+          fi
+
+          # Sanity check: the binary must run standalone
+          DYLD_LIBRARY_PATH= dist/bin/ffmpeg -version
+          dist/bin/ffmpeg -hide_banner -hwaccels | tee hwaccels.txt
+          grep -q videotoolbox hwaccels.txt
+          dist/bin/ffmpeg -hide_banner -encoders | grep '_videotoolbox'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-videotoolbox'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
+
+          # Functional test (VM runners lack HW compression sessions,
+          # so allow software fallback)
+          dist/bin/ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i testsrc=duration=2:size=640x360:rate=30 \
+            -c:v h264_videotoolbox -allow_sw 1 -y hwtest.mp4
+
+          tar -C dist -czf "ffmpeg-full-macos-arm64-static.tar.gz" bin
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-full-macos-arm64-static
+          path: ffmpeg-full-macos-arm64-static.tar.gz
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ffmpeg-full-macos-arm64-static.tar.gz
