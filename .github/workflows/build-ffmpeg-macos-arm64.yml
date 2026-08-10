@@ -75,7 +75,9 @@ jobs:
           dist/bin/ffmpeg -hide_banner -hwaccels | tee hwaccels.txt
           grep -q videotoolbox hwaccels.txt
           dist/bin/ffmpeg -hide_banner -encoders | grep '_videotoolbox'
-          dist/bin/ffmpeg -hide_banner -decoders | grep '_videotoolbox'
+          # Note: FFmpeg 9 has no separate *_videotoolbox decoder entries;
+          # hardware decoding is done through the videotoolbox hwaccel,
+          # which is covered by the -hwaccels check and functional test.
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-videotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
