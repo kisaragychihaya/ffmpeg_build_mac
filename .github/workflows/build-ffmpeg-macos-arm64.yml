@@ -203,6 +203,8 @@ jobs:
       # a dylib symbol; the classic linker tolerates it.
       # --extra-libs: some Homebrew .pc files don't declare their private
       # (transitive) dependencies, which only breaks static linking.
+      # The GSS_C_NT_* data symbols exist in the GSS framework dylib at
+      # runtime but are not in the SDK .tbd; -U defers them to runtime.
       - name: Build FFmpeg (static)
         run: |
           cd ffmpeg-src
@@ -214,6 +216,8 @@ jobs:
             --extra-ldflags=-L/opt/homebrew/lib \
             --extra-ldflags=-L/opt/homebrew/opt/mbedtls@3/lib \
             --extra-ldflags=-L/opt/homebrew/opt/openssl@3/lib \
+            --extra-ldflags=-Wl,-U,_GSS_C_NT_HOSTBASED_SERVICE \
+            --extra-ldflags=-Wl,-U,_GSS_C_NT_USER_NAME \
             --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv -lssl -lcrypto -framework CoreFoundation -framework CoreServices -framework CoreText -framework CoreGraphics -framework GSS' \
             --cc=clang \
             --enable-gpl --enable-version3 \
