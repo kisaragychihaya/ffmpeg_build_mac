@@ -182,6 +182,17 @@ jobs:
             ! -path '*pkgconf*' -exec mv {} {}.hidden \;
           # Remove the now-dangling symlinks in the top-level lib dir
           find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
+          # List libraries that ship no static archive (.a) — the
+          # corresponding features must be excluded from the static build.
+          echo "=== Libraries WITHOUT a static archive ==="
+          for d in "$(brew --prefix)"/Cellar/*/*/lib; do
+            [ -d "$d" ] || continue
+            for dy in "$d"/*.dylib.hidden; do
+              [ -e "$dy" ] || continue
+              root=$(basename "$dy" | sed 's/\.[0-9.]*\.dylib\.hidden$//;s/\.dylib\.hidden$//')
+              [ -e "$d/$root.a" ] || echo "$root"
+            done
+          done | sort -u
 
       # Configure args mirror the formula's (see the shared build job),
       # with --enable-shared replaced by static flags, and without
