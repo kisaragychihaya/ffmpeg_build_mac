@@ -181,15 +181,17 @@ jobs:
       # The CI runner is disposable.
       - name: Hide dylibs that have a static archive
         run: |
+          set +e  # hiding is best-effort; a non-matching glob must not fail the step
           CELLAR="$(brew --prefix)/Cellar"
           find "$CELLAR" -name '*.a' ! -path '*pkgconf*' | while read -r a; do
             dir=$(dirname "$a"); base=$(basename "$a" .a)
             for dy in "$dir/$base.dylib" "$dir/$base".*.dylib; do
-              [ -e "$dy" ] && mv "$dy" "$dy.hidden"
+              if [ -e "$dy" ]; then mv "$dy" "$dy.hidden"; fi
             done
           done
           # Remove now-dangling symlinks in the top-level lib dir
           find "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -delete
+          exit 0
 
       # Configure args mirror the formula's (see the shared build job),
       # with --enable-shared replaced by static flags, and without
