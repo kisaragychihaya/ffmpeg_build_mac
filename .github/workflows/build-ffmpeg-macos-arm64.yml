@@ -220,6 +220,7 @@ jobs:
           dl https://downloads.sourceforge.net/project/bs2b/libbs2b/3.1.0/libbs2b-3.1.0.tar.gz bs2b.tgz
           tar xf bs2b.tgz
           (cd libbs2b-3.1.0 && ./configure --prefix="$SP" --enable-static --disable-shared \
+            CPPFLAGS="-I/opt/homebrew/include" LDFLAGS="-L/opt/homebrew/lib" \
             && make -j"$NCPU" && make install)
 
           # libaribcaption (ARIB captions)
