@@ -2,7 +2,9 @@
 
 本文档列出本仓库 GitHub Action 构建的 FFmpeg 9.0(macOS arm64,Apple Silicon)中已验证可用的硬件加速编解码器。
 
-数据来源:构建成功的 CI 日志中 `./configure` 输出及 `ffmpeg -hwaccels` / `-encoders` 实测结果。
+**shared 与 static 两个构建的硬件加速能力完全一致**(configure 参数相同,仅链接方式不同),本文档对两者均适用。
+
+数据来源:构建成功的 CI 日志中 `./configure` 输出及 `ffmpeg -hwaccels` / `-encoders` 实测结果(shared 与 static 均已核对)。
 
 ## 可用的硬件加速框架
 
@@ -53,6 +55,19 @@ configure 输出的 Vulkan hwaccels:
 
 - 解码:`apv_vulkan`、`av1_vulkan`、`dpx_vulkan`、`ffv1_vulkan`、`h264_vulkan`、`hevc_vulkan`、`mpeg? / vp9_vulkan`、`prores_vulkan`、`prores_raw_vulkan`
 - 在 Apple Silicon 上 Vulkan 经由 MoltenVK 映射到 Metal
+
+## Metal 加速
+
+configure 输出中 `metal` 在 "External libraries providing hardware acceleration" 列表中(shared 与 static 均有),主要提供:
+
+- `yadif_videotoolbox` 滤镜:Metal compute 实现的去隔行(VideoToolbox 帧零拷贝处理),编译产物为 `libavfilter/metal/vf_yadif_videotoolbox.metallib`
+
+用法示例:
+
+```bash
+ffmpeg -hwaccel videotoolbox -i interlaced.mov \
+  -vf yadif_videotoolbox -c:v hevc_videotoolbox out.mp4
+```
 
 ## 音频硬件编解码器(AudioToolbox)
 
