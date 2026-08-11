@@ -228,9 +228,10 @@ jobs:
           git clone --depth 1 -b v1.1.1 https://github.com/xqq/libaribcaption.git
           cbuild libaribcaption
 
-          # OpenAPV
+          # OpenAPV (static only — its dylib's install_name is a bare
+          # filename, which breaks dylibbundler)
           git clone --depth 1 -b v0.3.0.0 https://github.com/AcademySoftwareFoundation/openapv.git
-          cbuild openapv -DOAPV_APP_STATIC_BUILD=OFF
+          cbuild openapv -DOAPV_BUILD_APPS=OFF -DOAPV_BUILD_SHARED_LIB=OFF
           # openapv's cmake may not install a pkg-config file; create one
           if [ ! -f "$SP/lib/pkgconfig/oapv.pc" ]; then
             printf 'prefix=%s\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\n\nName: oapv\nDescription: OpenAPV\nVersion: 0.3.0.0\nLibs: -L${libdir} -loapv\nCflags: -I${includedir} -DOAPV_STATIC_DEFINE\n' "$SP" > "$SP/lib/pkgconfig/oapv.pc"
