@@ -207,9 +207,10 @@ jobs:
           git clone --depth 1 -b 1.23.1 https://github.com/kcat/openal-soft.git
           cbuild openal-soft -DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF
 
-          # libsoxr (resampler); its SIMD paths are x86-only, disable them
+          # libsoxr (resampler); disable its x86-only SIMD engines
           git clone --depth 1 -b 0.1.3 https://github.com/chirlu/soxr.git
-          cbuild soxr -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DWITH_OPENMP=OFF -DWITH_SIMD=OFF
+          cbuild soxr -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DWITH_OPENMP=OFF \
+            -DWITH_CR32S=OFF -DWITH_CR64S=OFF -DWITH_LSR_BINDINGS=OFF
 
           # vid.stab (video stabilization)
           git clone --depth 1 -b v1.1.1 https://github.com/georgmartius/vid.stab.git
