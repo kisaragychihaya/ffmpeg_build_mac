@@ -350,7 +350,7 @@ jobs:
             --extra-ldflags=-L/opt/homebrew/opt/libarchive/lib \
             --extra-ldflags=-Wl,-U,_GSS_C_NT_HOSTBASED_SERVICE \
             --extra-ldflags=-Wl,-U,_GSS_C_NT_USER_NAME \
-            --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv -lssl -lcrypto -lc++ -lb2 -llzma -llz4 -lzstd -lsharpyuv -lncurses -framework CoreFoundation -framework CoreServices -framework CoreText -framework CoreGraphics -framework GSS -framework Accelerate' \
+            --extra-libs='-lpng16 -lz -lbz2 -lexpat -liconv -lssl -lcrypto -lc++ -lb2 -llzma -llz4 -lzstd -lsharpyuv -lncurses -lfftw3f -framework CoreFoundation -framework CoreServices -framework CoreText -framework CoreGraphics -framework GSS -framework Accelerate' \
             --cc=clang \
             --enable-gpl --enable-version3 \
             --enable-libaom --enable-libdav1d --enable-libharfbuzz \
