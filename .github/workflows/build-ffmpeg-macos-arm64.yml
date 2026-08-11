@@ -200,8 +200,9 @@ jobs:
             --default-library=static -Dtests=disabled
           ninja -C openh264/b install
 
-          # openal-soft (--enable-openal)
-          git clone --depth 1 -b 1.25.2 https://github.com/kcat/openal-soft.git
+          # openal-soft (--enable-openal). 1.25.x needs a newer libc++
+          # (std::views::join) than the runner's clang 15 has; pin 1.23.1.
+          git clone --depth 1 -b 1.23.1 https://github.com/kcat/openal-soft.git
           cbuild openal-soft -DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF
 
           # libsoxr (resampler)
