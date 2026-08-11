@@ -177,7 +177,9 @@ jobs:
             local src=$1; shift
             cmake -S "$src" -B "$src/b" \
               -DCMAKE_INSTALL_PREFIX="$SP" -DCMAKE_BUILD_TYPE=Release \
-              -DBUILD_SHARED_LIBS=OFF "$@"
+              -DBUILD_SHARED_LIBS=OFF \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              "$@"
             cmake --build "$src/b" -j"$NCPU"
             cmake --install "$src/b"
           }
@@ -201,11 +203,9 @@ jobs:
           ninja -C openh264/b install
 
           # openal-soft (--enable-openal). 1.25.x needs a newer libc++
-          # (std::views::join) than the runner's clang 15 has; pin 1.23.1,
-          # whose old cmake_minimum_required needs the policy override.
+          # (std::views::join) than the runner's clang 15 has; pin 1.23.1.
           git clone --depth 1 -b 1.23.1 https://github.com/kcat/openal-soft.git
-          cbuild openal-soft -DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cbuild openal-soft -DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF
 
           # libsoxr (resampler)
           git clone --depth 1 -b 0.1.3 https://github.com/chirlu/soxr.git
