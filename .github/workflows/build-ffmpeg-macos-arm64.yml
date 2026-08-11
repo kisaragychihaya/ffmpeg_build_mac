@@ -177,6 +177,7 @@ jobs:
             local src=$1; shift
             cmake -S "$src" -B "$src/b" \
               -DCMAKE_INSTALL_PREFIX="$SP" -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="$SP" \
               -DBUILD_SHARED_LIBS=OFF \
               -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
               "$@"
@@ -248,17 +249,25 @@ jobs:
           git clone --depth 1 -b SDL2 https://github.com/libsdl-org/SDL.git sdl2
           cbuild sdl2 -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_X11=OFF -DSDL_TESTS=OFF
 
-          # libjxl (JPEG XL; release tarball bundles third_party deps)
-          dl https://github.com/libjxl/libjxl/releases/download/v0.11.2/libjxl-v0.11.2.tar.gz jxl.tgz
+          # highway (needed by libjxl; bottle has no .a)
+          git clone --depth 1 -b 1.4.0 https://github.com/google/highway.git
+          cbuild highway -DHWY_ENABLE_TESTS=OFF -DHWY_ENABLE_EXAMPLES=OFF \
+            -DHWY_ENABLE_CONTRIB=OFF
+
+          # libjxl (JPEG XL; system brotli/lcms2/highway so no submodules
+          # are needed; skcms off in favor of lcms2, as in the Homebrew build)
+          dl https://github.com/libjxl/libjxl/archive/refs/tags/v0.11.2.tar.gz jxl.tgz
           tar xf jxl.tgz
-          cbuild libjxl-v0.11.2 \
+          cbuild libjxl-0.11.2 \
             -DJPEGXL_ENABLE_TOOLS=OFF -DJPEGXL_ENABLE_MANPAGES=OFF \
             -DJPEGXL_ENABLE_BENCHMARK=OFF -DJPEGXL_ENABLE_EXAMPLES=OFF \
             -DJPEGXL_ENABLE_JPEGLI=OFF -DJPEGXL_ENABLE_PLUGINS=OFF \
             -DJPEGXL_ENABLE_DEVTOOLS=OFF -DJPEGXL_ENABLE_JNI=OFF \
             -DJPEGXL_ENABLE_SJPEG=OFF -DJPEGXL_ENABLE_OPENEXR=OFF \
             -DJPEGXL_ENABLE_DOXYGEN=OFF -DBUILD_TESTING=OFF \
-            -DJPEGXL_ENABLE_SKCMS=ON -DJPEGXL_BUNDLE_SKCMS=ON
+            -DJPEGXL_ENABLE_SKCMS=OFF \
+            -DJPEGXL_FORCE_SYSTEM_BROTLI=ON -DJPEGXL_FORCE_SYSTEM_LCMS2=ON \
+            -DJPEGXL_FORCE_SYSTEM_HWY=ON
 
           echo "=== static-deps installed ==="
           ls "$SP/lib"/*.a | head -40
