@@ -121,32 +121,22 @@ jobs:
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
 
-      # chromaprint depends on ffmpeg itself (cyclic dependency).
-      # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
-      # then remove that ffmpeg while keeping chromaprint.
-      - name: Pre-install chromaprint (cyclic dependency workaround)
-        run: |
-          brew install chromaprint
-          brew uninstall --ignore-dependencies ffmpeg
-
       # The formula's --with-libzvbi option uses zvbi but forgets to declare
       # the dependency, so pkg-config can't find zvbi-0.2. Install it first.
       - name: Pre-install zvbi (missing formula dependency)
         run: brew install zvbi
 
-      # Homebrew is only used to install the dependencies. The build itself
-      # is done manually below, because Homebrew's build sandbox prevents the
-      # dylib-hiding trick needed for static linking.
+      # Homebrew is only used for dependencies that ship a static archive.
+      # Options excluded beyond the shared build's list:
+      #   --with-librsvg   (dropped: drags in the glib/cairo/pango stack,
+      #                     none of which ship static archives)
+      #   --with-chromaprint, --with-jpeg-xl, --with-openh264,
+      #   --with-openal-soft, --with-libsoxr, --with-libvidstab,
+      #   --with-libbs2b, --with-libaribcaption, --with-openapv,
+      #   --with-whisper-cpp, --with-ggml
+      #     (bottles ship no .a; built from source below instead)
       - name: Install dependencies
         run: |
-          # All options except:
-          #   --with-decklink   (requires the DeckLink SDK, not available in CI)
-          #   --with-libflite   (flite is not packaged in homebrew-core)
-          #   --with-alt-name   (we want the normal ffmpeg/ffprobe/ffplay names)
-          #   --with-fdk-aac    (not needed; also forces --enable-nonfree)
-          #   --with-openssl    (not needed; also forces --enable-nonfree)
-          #   --with-tensorflow (libtensorflow ships no static archive)
-          #   --with-openvino   (OpenVINO ships no static archive)
           OPTIONS=$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact \
             | tr ' ' '\n' \
             | grep -v 'with-decklink' \
@@ -156,10 +146,118 @@ jobs:
             | grep -v 'with-openssl' \
             | grep -v 'with-tensorflow' \
             | grep -v 'with-openvino' \
+            | grep -v 'with-librsvg' \
+            | grep -v 'with-chromaprint' \
+            | grep -v 'with-jpeg-xl' \
+            | grep -v 'with-openh264' \
+            | grep -v 'with-openal-soft' \
+            | grep -v 'with-libsoxr' \
+            | grep -v 'with-libvidstab' \
+            | grep -v 'with-libbs2b' \
+            | grep -v 'with-libaribcaption' \
+            | grep -v 'with-openapv' \
+            | grep -v 'with-whisper-cpp' \
+            | grep -v 'with-ggml' \
             | xargs)
           echo "Building with options: $OPTIONS"
           brew install --only-dependencies homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
-          brew install dylibbundler
+          brew install dylibbundler meson ninja fftw
+
+      # Build static versions of the libraries whose Homebrew bottles lack
+      # a .a, installed into $HOME/static-deps (SP). ffmpeg's configure is
+      # pointed at SP first, so these take precedence over the bottles.
+      - name: Build static deps from source
+        run: |
+          set -e
+          SP="$HOME/static-deps"
+          NCPU=$(sysctl -n hw.ncpu)
+          mkdir -p "$SP" deps && cd deps
+
+          cbuild() { # cbuild <srcdir> [extra cmake args...]
+            local src=$1; shift
+            cmake -S "$src" -B "$src/b" \
+              -DCMAKE_INSTALL_PREFIX="$SP" -DCMAKE_BUILD_TYPE=Release \
+              -DBUILD_SHARED_LIBS=OFF "$@"
+            cmake --build "$src/b" -j"$NCPU"
+            cmake --install "$src/b"
+          }
+          dl() { curl -fL --retry 5 --retry-delay 5 --retry-all-errors -o "$2" "$1"; }
+
+          # dav1d (AV1 decoder)
+          dl https://code.videolan.org/videolan/dav1d/-/archive/1.5.3/dav1d-1.5.3.tar.gz dav1d.tgz
+          tar xf dav1d.tgz
+          meson setup dav1d-1.5.3/b dav1d-1.5.3 --prefix="$SP" \
+            --default-library=static -Denable_tools=false -Denable_tests=false
+          ninja -C dav1d-1.5.3/b install
+
+          # SVT-AV1 (AV1 encoder)
+          git clone --depth 1 -b v3.1.2 https://gitlab.com/AOMediaCodec/SVT-AV1.git
+          cbuild SVT-AV1 -DBUILD_APPS=OFF -DBUILD_TESTING=OFF
+
+          # OpenH264
+          git clone --depth 1 -b v2.6.0 https://github.com/cisco/openh264.git
+          meson setup openh264/b openh264 --prefix="$SP" \
+            --default-library=static -Dtests=disabled
+          ninja -C openh264/b install
+
+          # openal-soft (--enable-openal)
+          git clone --depth 1 -b 1.25.2 https://github.com/kcat/openal-soft.git
+          cbuild openal-soft -DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF
+
+          # libsoxr (resampler)
+          git clone --depth 1 -b 0.1.3 https://github.com/chirlu/soxr.git
+          cbuild soxr -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DWITH_OPENMP=OFF
+
+          # vid.stab (video stabilization)
+          git clone --depth 1 -b v1.1.1 https://github.com/georgmartius/vid.stab.git
+          cbuild vid.stab
+
+          # libbs2b (binaural audio)
+          dl https://downloads.sourceforge.net/libbs2b/libbs2b-3.1.0.tar.gz bs2b.tgz
+          tar xf bs2b.tgz
+          (cd libbs2b-3.1.0 && ./configure --prefix="$SP" --enable-static --disable-shared \
+            && make -j"$NCPU" && make install)
+
+          # libaribcaption (ARIB captions)
+          git clone --depth 1 -b v1.1.1 https://github.com/xqq/libaribcaption.git
+          cbuild libaribcaption
+
+          # OpenAPV
+          git clone --depth 1 -b v0.3.0.0 https://github.com/AcademySoftwareFoundation/openapv.git
+          cbuild openapv -DOAPV_APP_STATIC_BUILD=OFF
+          # openapv's cmake may not install a pkg-config file; create one
+          if [ ! -f "$SP/lib/pkgconfig/oapv.pc" ]; then
+            printf 'prefix=%s\nlibdir=${prefix}/lib\nincludedir=${prefix}/include\n\nName: oapv\nDescription: OpenAPV\nVersion: 0.3.0.0\nLibs: -L${libdir} -loapv\nCflags: -I${includedir} -DOAPV_STATIC_DEFINE\n' "$SP" > "$SP/lib/pkgconfig/oapv.pc"
+          fi
+
+          # chromaprint (audio fingerprint; FFT via brew fftw static)
+          git clone --depth 1 -b v1.6.0 https://github.com/acoustid/chromaprint.git
+          cbuild chromaprint -DFFT_LIB=fftw3f -DBUILD_TOOLS=OFF -DBUILD_TESTS=OFF
+
+          # whisper.cpp (speech recognition; CPU + Accelerate)
+          git clone --depth 1 -b v1.9.1 https://github.com/ggml-org/whisper.cpp.git
+          cbuild whisper.cpp -DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF \
+            -DGGML_METAL=OFF -DGGML_ACCELERATE=ON
+
+          # SDL2 (needed by ffplay; static, no X11)
+          git clone --depth 1 -b SDL2 https://github.com/libsdl-org/SDL.git sdl2
+          cbuild sdl2 -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_X11=OFF -DSDL_TESTS=OFF
+
+          # libjxl (JPEG XL; release tarball bundles third_party deps)
+          dl https://github.com/libjxl/libjxl/releases/download/v0.11.2/libjxl-v0.11.2.tar.gz jxl.tgz
+          tar xf jxl.tgz
+          cbuild libjxl-v0.11.2 \
+            -DJPEGXL_ENABLE_TOOLS=OFF -DJPEGXL_ENABLE_MANPAGES=OFF \
+            -DJPEGXL_ENABLE_BENCHMARK=OFF -DJPEGXL_ENABLE_EXAMPLES=OFF \
+            -DJPEGXL_ENABLE_JPEGLI=OFF -DJPEGXL_ENABLE_PLUGINS=OFF \
+            -DJPEGXL_ENABLE_DEVTOOLS=OFF -DJPEGXL_ENABLE_JNI=OFF \
+            -DJPEGXL_ENABLE_SJPEG=OFF -DJPEGXL_ENABLE_OPENEXR=OFF \
+            -DJPEGXL_ENABLE_DOXYGEN=OFF -DBUILD_TESTING=OFF \
+            -DJPEGXL_ENABLE_SKCMS=ON -DJPEGXL_BUNDLE_SKCMS=ON
+
+          echo "=== static-deps installed ==="
+          ls "$SP/lib"/*.a | head -40
+          ls "$SP/lib/pkgconfig"
 
       - name: Download FFmpeg source
         run: |
@@ -171,15 +269,12 @@ jobs:
           /usr/bin/tar xf ffmpeg.tar.xz
           mv "ffmpeg-${VERSION}" ffmpeg-src
 
-      # Many Homebrew bottles ship no static archive (.a) at all (dav1d,
-      # svt-av1, jxl, placebo, rsvg, whisper, SDL2, glib, ...), so a fully
-      # static build would lose too many features. Instead this is a hybrid:
-      #   - libs that have a .a get their dylib hidden, forcing static linking
-      #   - libs without a .a keep their dylib and are bundled into the
-      #     package afterwards with dylibbundler
-      # Hiding must run after every brew command (brew's own tools need
-      # those dylibs). pkgconf is exempted so pkg-config keeps working.
-      # The CI runner is disposable.
+      # macOS ld always prefers .dylib over .a for -lfoo, and with
+      # -mdynamic-no-pic (which ffmpeg's configure adds for static builds)
+      # taking the address of a dylib symbol fails with "invalid use of ADRP".
+      # Hide Homebrew dylibs that have a static archive so the linker picks
+      # the .a. Must run after every brew command (brew's own tools need
+      # those dylibs). The CI runner is disposable.
       - name: Hide dylibs that have a static archive
         run: |
           set +e  # hiding is best-effort; a non-matching glob must not fail the step
@@ -198,14 +293,20 @@ jobs:
               if [ -e "$dy" ]; then mv "$dy" "$dy.hidden"; fi
             done
           done
+          # dav1d/svt-av1/sdl2 bottles have no .a; we built our own static
+          # copies, so hide the Homebrew dylibs outright.
+          for p in dav1d svt-av1 sdl2; do
+            find "$CELLAR/$p" -name '*.dylib' -exec mv {} {}.hidden \;
+          done
           # Remove now-dangling symlinks in the top-level lib dir
           # (-L follows links, so -type l matches only broken ones)
           find -L "$(brew --prefix)/lib" -maxdepth 1 -name '*.dylib' -type l -delete
           exit 0
 
       # Configure args mirror the formula's (see the shared build job),
-      # with --enable-shared replaced by static flags, and without
-      # tensorflow/openvino (no static archives available).
+      # with --enable-shared replaced by static flags, without
+      # tensorflow/openvino (no static archives) and without librsvg
+      # (dropped for the static build).
       # -Wl,-ld_classic: the new Apple linker errors with "invalid use of
       # ADRP" when a -mdynamic-no-pic configure probe takes the address of
       # a dylib symbol; the classic linker tolerates it.
@@ -215,20 +316,22 @@ jobs:
       # runtime but are not in the SDK .tbd; -U defers them to runtime.
       - name: Build FFmpeg (static)
         run: |
+          SP="$HOME/static-deps"
           cd ffmpeg-src
           # Keg-only Homebrew packages are not linked into /opt/homebrew,
           # so pkg-config and the compiler need their paths explicitly.
-          export PKG_CONFIG_PATH="/opt/homebrew/opt/openal-soft/lib/pkgconfig:/opt/homebrew/opt/icu4c@78/lib/pkgconfig:/opt/homebrew/opt/libarchive/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/mbedtls@3/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
+          export PKG_CONFIG_PATH="$SP/lib/pkgconfig:/opt/homebrew/opt/icu4c@78/lib/pkgconfig:/opt/homebrew/opt/libarchive/lib/pkgconfig:/opt/homebrew/opt/openssl@3/lib/pkgconfig:/opt/homebrew/opt/mbedtls@3/lib/pkgconfig:/opt/homebrew/lib/pkgconfig"
           ./configure \
             --prefix="$PWD/../ffmpeg-install" \
             --enable-static --disable-shared --pkg-config-flags=--static \
             --extra-ldflags=-Wl,-ld_classic \
+            --extra-cflags=-I"$SP/include" \
             --extra-cflags=-I/opt/homebrew/include \
-            --extra-cflags=-I/opt/homebrew/opt/openal-soft/include \
+            --extra-cflags='-DJXL_STATIC_DEFINE -DJXL_THREADS_STATIC_DEFINE -DJXL_CMS_STATIC_DEFINE' \
+            --extra-ldflags=-L"$SP/lib" \
             --extra-ldflags=-L/opt/homebrew/lib \
             --extra-ldflags=-L/opt/homebrew/opt/mbedtls@3/lib \
             --extra-ldflags=-L/opt/homebrew/opt/openssl@3/lib \
-            --extra-ldflags=-L/opt/homebrew/opt/openal-soft/lib \
             --extra-ldflags=-L/opt/homebrew/opt/icu4c@78/lib \
             --extra-ldflags=-L/opt/homebrew/opt/libarchive/lib \
             --extra-ldflags=-Wl,-U,_GSS_C_NT_HOSTBASED_SERVICE \
@@ -251,7 +354,7 @@ jobs:
             --enable-libgme --enable-libgsm --enable-libjxl \
             --enable-libmodplug --enable-libopenh264 --enable-libopenjpeg \
             --enable-libopenmpt --enable-libplacebo --enable-librav1e \
-            --enable-librist --enable-librsvg --enable-librtmp \
+            --enable-librist --enable-librtmp \
             --enable-librubberband --enable-libsoxr --enable-libspeex \
             --enable-libsrt --enable-libssh --enable-libtesseract \
             --enable-libtwolame --enable-libvidstab --enable-libvmaf \
@@ -278,7 +381,7 @@ jobs:
             | while read -r f; do mv "$f" "${f%.hidden}"; done
 
           # Most libraries are statically linked in; bundle the remaining
-          # dylib dependencies (libs that ship no .a) into dist/lib.
+          # dylib dependencies into dist/lib.
           for tool in ffmpeg ffprobe ffplay; do
             dylibbundler -od -b -of \
               -x "dist/bin/$tool" \
@@ -286,7 +389,7 @@ jobs:
               -p @executable_path/../lib < /dev/null
           done
           echo "Bundled dylibs:"
-          ls dist/lib | head -40
+          ls dist/lib
           echo "Bundled dylib count: $(ls dist/lib | wc -l)"
 
           # After bundling, no reference to /opt/homebrew may remain
