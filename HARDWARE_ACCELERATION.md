@@ -1,3 +1,4 @@
+V 0.0.0
 # 硬件加速编解码器支持列表
 
 本文档列出本仓库 GitHub Action 构建的 FFmpeg 9.0(macOS arm64,Apple Silicon)中已验证可用的硬件加速编解码器。
