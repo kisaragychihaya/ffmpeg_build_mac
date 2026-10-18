@@ -64,6 +64,16 @@ jobs:
             | grep -v 'with-openssl' \
             | xargs)
           echo "Building with options: $OPTIONS"
+          # Upstream renamed the whisper-cpp formula to whisper.cpp and the
+          # tap followed, but a runner image's cached formula API can predate
+          # the rename; brew then aborts on the unresolvable optional
+          # dependency instead of skipping it.
+          if brew info --json=v2 whisper.cpp >/dev/null 2>&1; then
+            echo "whisper.cpp resolves in this image; keeping --with-whisper.cpp"
+          else
+            echo "whisper.cpp missing from this image's formula API; dropping --with-whisper.cpp"
+            OPTIONS=$(printf '%s\n' $OPTIONS | grep -v 'with-whisper' | xargs)
+          fi
           # Options always imply a source build, so this compiles FFmpeg.
           brew install --verbose homebrew-ffmpeg/ffmpeg/ffmpeg $OPTIONS
 
@@ -164,7 +174,7 @@ jobs:
       #   --with-chromaprint, --with-jpeg-xl, --with-openh264,
       #   --with-openal-soft, --with-libsoxr, --with-libvidstab,
       #   --with-libbs2b, --with-libaribcaption, --with-openapv,
-      #   --with-whisper-cpp, --with-ggml
+      #   --with-whisper.cpp, --with-ggml
       #     (bottles ship no .a; built from source below instead)
       - name: Install dependencies
         run: |
@@ -187,7 +197,7 @@ jobs:
             | grep -v 'with-libbs2b' \
             | grep -v 'with-libaribcaption' \
             | grep -v 'with-openapv' \
-            | grep -v 'with-whisper-cpp' \
+            | grep -v 'with-whisper.cpp' \
             | grep -v 'with-ggml' \
             | xargs)
           echo "Building with options: $OPTIONS"

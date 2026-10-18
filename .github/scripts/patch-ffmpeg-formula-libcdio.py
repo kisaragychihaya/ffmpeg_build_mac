@@ -20,11 +20,16 @@ INSERTIONS = [
         ['  option "with-libcdio", "Enable audio CD grabbing with libcdio"'],
     ),
     (
-        'depends_on "libcaca" => :optional',
-        "after",
+        'uses_from_macos "bzip2"',
+        "before",
         [
-            '  depends_on "libcdio" => :optional',
-            '  depends_on "libcdio-paranoia" => :optional',
+            '  # `--with-libcdio` needs libcdio plus libcdio-paranoia, which',
+            '  # supplies the cdda/paranoia parts FFmpeg\'s configure probes for.',
+            '  if build.with? "libcdio"',
+            '    depends_on "libcdio"',
+            '    depends_on "libcdio-paranoia"',
+            "  end",
+            "",
         ],
     ),
     (
