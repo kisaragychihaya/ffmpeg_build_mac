@@ -17,6 +17,11 @@ jobs:
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
+      # The patch script below lives in this repo, so it has to be checked out
+      # (nothing else in the workflow needs the working tree).
+      - name: Check out the formula patch script
+        uses: actions/checkout@v4
+
       - name: Tap homebrew-ffmpeg
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
@@ -129,6 +134,11 @@ jobs:
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
       HOMEBREW_NO_INSTALL_CLEANUP: "1"
     steps:
+      # The patch script below lives in this repo, so it has to be checked out
+      # (nothing else in the workflow needs the working tree).
+      - name: Check out the formula patch script
+        uses: actions/checkout@v4
+
       - name: Tap homebrew-ffmpeg
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
