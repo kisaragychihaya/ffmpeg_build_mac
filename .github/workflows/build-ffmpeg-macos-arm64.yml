@@ -21,6 +21,14 @@ jobs:
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
 
+      # The formula has no libcdio option, so add one to the tapped copy.
+      # `brew options` below lists it, so --with-libcdio ends up in OPTIONS
+      # and pulls in libcdio + libcdio-paranoia.
+      - name: Add libcdio support to the formula
+        run: |
+          python3 .github/scripts/patch-ffmpeg-formula-libcdio.py \
+            "$(brew --repository homebrew-ffmpeg/ffmpeg)/Formula/ffmpeg.rb"
+
       # chromaprint depends on ffmpeg itself (cyclic dependency).
       # Workaround: install chromaprint first (pulls in homebrew-core ffmpeg),
       # then remove that ffmpeg while keeping chromaprint.
@@ -85,6 +93,10 @@ jobs:
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
 
+          # libcdio comes from the patched --with-libcdio formula option.
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-libcdio'
+          dist/bin/ffmpeg -hide_banner -devices | grep -q libcdio
+
           # Functional test: VideoToolbox encode + decode.
           # GitHub's macOS runners are VMs where the HW compression session
           # can be unavailable (error -12903), so fall back to -allow_sw 1,
@@ -120,6 +132,15 @@ jobs:
       - name: Tap homebrew-ffmpeg
         run: |
           brew tap homebrew-ffmpeg/ffmpeg
+
+      # Same patch as the shared build. Here it matters twice: --with-libcdio
+      # is part of OPTIONS, so `brew install --only-dependencies` fetches
+      # libcdio and libcdio-paranoia, and the static archives of both are
+      # picked up by --enable-libcdio further down.
+      - name: Add libcdio support to the formula
+        run: |
+          python3 .github/scripts/patch-ffmpeg-formula-libcdio.py \
+            "$(brew --repository homebrew-ffmpeg/ffmpeg)/Formula/ffmpeg.rb"
 
       # The formula's --with-libzvbi option uses zvbi but forgets to declare
       # the dependency, so pkg-config can't find zvbi-0.2. Install it first.
@@ -377,6 +398,7 @@ jobs:
             --enable-libzimg --enable-libzmq --enable-liboapv \
             --enable-libdvdnav --enable-libdvdread \
             --enable-libjack --enable-indev=jack \
+            --enable-libcdio --enable-indev=libcdio \
             --enable-whisper --enable-libzvbi \
             --enable-libopencore-amrnb --enable-libopencore-amrwb \
             || { echo "===== ffbuild/config.log tail ====="; tail -100 ffbuild/config.log; exit 1; }
@@ -423,6 +445,8 @@ jobs:
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-videotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-audiotoolbox'
           dist/bin/ffmpeg -buildconf | grep -q -- '--enable-neon'
+          dist/bin/ffmpeg -buildconf | grep -q -- '--enable-libcdio'
+          dist/bin/ffmpeg -hide_banner -devices | grep -q libcdio
 
           # Functional test (VM runners lack HW compression sessions,
           # so allow software fallback)
