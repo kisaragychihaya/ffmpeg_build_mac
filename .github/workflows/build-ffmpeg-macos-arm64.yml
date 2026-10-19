@@ -136,9 +136,11 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ffmpeg-full-macos-arm64.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/publish-release.sh \
+            "$GITHUB_REF_NAME" ffmpeg-full-macos-arm64.tar.gz
 
   build-static:
     runs-on: macos-15 # Apple Silicon (arm64); artifacts require macOS 15+
@@ -500,6 +502,8 @@ jobs:
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ffmpeg-full-macos-arm64-static.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/publish-release.sh \
+            "$GITHUB_REF_NAME" ffmpeg-full-macos-arm64-static.tar.gz
