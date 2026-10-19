@@ -53,14 +53,12 @@ jobs:
           #   --with-decklink  (requires the DeckLink SDK, not available in CI)
           #   --with-libflite  (flite is not packaged in homebrew-core)
           #   --with-alt-name  (we want the normal ffmpeg/ffprobe/ffplay names)
-          #   --with-fdk-aac   (not needed; also forces --enable-nonfree)
           #   --with-openssl   (not needed; also forces --enable-nonfree)
           OPTIONS=$(brew options homebrew-ffmpeg/ffmpeg/ffmpeg --compact \
             | tr ' ' '\n' \
             | grep -v 'with-decklink' \
             | grep -v 'with-libflite' \
             | grep -v 'with-alt-name' \
-            | grep -v 'with-fdk-aac' \
             | grep -v 'with-openssl' \
             | xargs)
           echo "Building with options: $OPTIONS"
@@ -188,7 +186,6 @@ jobs:
             | grep -v 'with-decklink' \
             | grep -v 'with-libflite' \
             | grep -v 'with-alt-name' \
-            | grep -v 'with-fdk-aac' \
             | grep -v 'with-openssl' \
             | grep -v 'with-tensorflow' \
             | grep -v 'with-openvino' \
