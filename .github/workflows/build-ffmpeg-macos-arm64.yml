@@ -89,6 +89,11 @@ jobs:
               -d dist/lib \
               -p @executable_path/../lib
           done
+          # dylibbundler rewrites every LC_RPATH to the -p prefix above, which
+          # leaves libraries that ship two entries (tbb) with a duplicate that
+          # dyld on macOS 15+ rejects outright.
+          python3 .github/scripts/dedupe-macho-rpaths.py dist/bin dist/lib
+
           # Sanity check: the bundled binary must run standalone
           DYLD_LIBRARY_PATH= dist/bin/ffmpeg -version
           dist/bin/ffmpeg -buildconf
@@ -454,6 +459,11 @@ jobs:
               -d dist/lib \
               -p @executable_path/../lib < /dev/null
           done
+          # dylibbundler rewrites every LC_RPATH to the -p prefix above, which
+          # leaves libraries that ship two entries with a duplicate that dyld
+          # on macOS 15+ rejects outright.
+          python3 .github/scripts/dedupe-macho-rpaths.py dist/bin dist/lib
+
           echo "Bundled dylibs:"
           ls dist/lib
           echo "Bundled dylib count: $(ls dist/lib | wc -l)"
